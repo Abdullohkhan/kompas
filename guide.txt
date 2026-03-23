@@ -1,0 +1,27 @@
+Create register API:
+- accept email and password
+- hash password using bcrypt
+- store user in memory (temporary)
+
+Create login API:
+- validate user
+- compare password using bcrypt
+- return JWT token
+
+Store JWT token in httpOnly cookie after login
+
+Create middleware to protect dashboard route:
+- check JWT from cookies
+- redirect to /login if not valid
+
+Create middleware to protect dashboard route:
+- check JWT from cookies
+- redirect to /login if not valid
+
+
+Create logout function:
+- remove cookie
+- redirect to login
+
+Add role-based auth (admin/user)
+
