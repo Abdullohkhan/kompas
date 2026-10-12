@@ -1,0 +1,101 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum PlanKey {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum CustomerStatus {
+  ACTIVE
+  TRIAL
+  PAUSED
+}
+
+enum ReportType {
+  SALES
+  FINANCE
+  MARKETING
+  OPS
+}
+
+enum ReportStatus {
+  READY
+  SCHEDULED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  phone        String?
+  company      String?
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  reports Report[]
+}
+
+model Customer {
+  id        String         @id @default(cuid())
+  name      String
+  email     String         @unique
+  company   String
+  phone     String
+  plan      PlanKey
+  status    CustomerStatus
+  spent     Int            @default(0)
+  joinedAt  DateTime
+  createdAt DateTime       @default(now())
+
+  @@index([status])
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  /// Built-in reports carry a translation key; user-created ones use customName.
+  nameKey     String?
+  customName  String?
+  type        ReportType
+  status      ReportStatus @default(READY)
+  rows        Int          @default(0)
+  createdAt   DateTime     @default(now())
+  createdBy   User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdById String?
+}
+
+/// Per-page dashboard figures (stats, traffic split, activity) – one JSON row per page.
+model PageMetrics {
+  page         String @id // overview | analytics | customers | reports | settings
+  goalProgress Int
+  traffic      Json
+  activity     Json
+  stats        Json
+}
+
+/// Time series for charts: "revenue" (6 monthly points) and "sessions" (7 weekday points).
+model ChartSeries {
+  key    String @id
+  values Json
+}
+
+model TopPage {
+  id    Int    @id @default(autoincrement())
+  path  String @unique
+  views Int
+}
