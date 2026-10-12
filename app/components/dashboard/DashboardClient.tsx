@@ -1,24 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { format, useI18n } from "../../lib/i18n";
 import {
-  fetchPageData,
-  INITIAL_REPORTS,
-  PAGE_DATA,
+  api,
+  ApiError,
+  authApi,
+  toCustomer,
+  toMember,
+  toReport,
+  toUser,
+  useFetch,
+} from "../../lib/api/client";
+import {
   PAGE_IDS,
+  type Charts,
+  type Customer,
   type PageData,
   type PageId,
   type Report,
   type ReportType,
-} from "../../lib/mock";
+  type TeamMember,
+  type User,
+} from "../../lib/api/types";
 import { downloadCsv, pageRows, reportRows } from "./export";
 import { InsightsModal, NewReportModal, TeamModal, UpgradeModal } from "./Modals";
 import { Navbar } from "./Navbar";
 import { OverviewPanels } from "./OverviewPanels";
 import { Sidebar } from "./Sidebar";
 import { StatsGrid } from "./StatsGrid";
-import { secondaryButtonClass } from "./styles";
+import { baseCardClass, secondaryButtonClass } from "./styles";
 import { ToastProvider, useToast } from "./ui";
 import {
   AnalyticsExtras,
@@ -29,59 +40,97 @@ import {
   SettingsView,
 } from "./Views";
 
-type Loaded = { page: PageId; data: PageData } | null;
 type ModalName = "insights" | "team" | "upgrade" | "newReport" | null;
+
+// Module-level so useFetch sees stable references.
+const mapUser = (raw: { user: Parameters<typeof toUser>[0] }) => toUser(raw.user);
+const mapCustomers = (raw: Parameters<typeof toCustomer>[0][]) => raw.map(toCustomer);
+const mapReports = (raw: Parameters<typeof toReport>[0][]) => raw.map(toReport);
+const mapMembers = (raw: Parameters<typeof toMember>[0][]) => raw.map(toMember);
+
+function ErrorCard({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div role="alert" className={`${baseCardClass} mt-8 p-8 text-center`}>
+      <p className="font-medium text-slate-900 dark:text-slate-100">{t.errors.load}</p>
+      <button type="button" onClick={onRetry} className={`${secondaryButtonClass} mt-4`}>
+        {t.errors.retry}
+      </button>
+    </div>
+  );
+}
 
 function Dashboard() {
   const { t } = useI18n();
   const toast = useToast();
   const [activePage, setActivePage] = useState<PageId>("overview");
-  const [loaded, setLoaded] = useState<Loaded>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [modal, setModal] = useState<ModalName>(null);
-  const [reports, setReports] = useState<Report[]>(INITIAL_REPORTS);
 
-  useEffect(() => {
-    let current = true;
-    fetchPageData(activePage).then((data) => {
-      if (current) setLoaded({ page: activePage, data });
-    });
-    return () => {
-      current = false;
-    };
-  }, [activePage]);
+  const user = useFetch<User>("/auth/me", mapUser);
+  const page = useFetch<PageData>(`/dashboard/${activePage}`);
+  const charts = useFetch<Charts>("/dashboard/charts");
+  const customers = useFetch<Customer[]>(activePage === "customers" ? "/customers" : null, mapCustomers);
+  const reports = useFetch<Report[]>(activePage === "reports" ? "/reports" : null, mapReports);
+  const team = useFetch<TeamMember[]>(activePage === "settings" || modal === "team" ? "/team" : null, mapMembers);
 
   const closeModal = useCallback(() => setModal(null), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
 
-  // Stats are "loading" whenever the last loaded page differs from the selected one.
-  const isLoading = loaded?.page !== activePage;
+  const fail = (error: unknown) => {
+    toast(error instanceof ApiError && error.status === 403 ? t.errors.forbidden : t.errors.generic);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await authApi.logout();
+    } finally {
+      window.location.assign("/login");
+    }
+  };
 
   const handleExport = () => {
+    if (!page.data) return;
     const file = `pulseboard-${activePage}.csv`;
-    downloadCsv(file, pageRows(t, activePage));
+    downloadCsv(file, pageRows(t, activePage, page.data));
     toast(format(t.export.done, { file }));
   };
 
   const handleDownloadReport = (report: Report) => {
-    const name = reportName(report, t.reports.names);
     downloadCsv(`report-${report.id}.csv`, reportRows(t, report));
-    toast(format(t.reports.downloaded, { name }));
+    toast(format(t.reports.downloaded, { name: reportName(report, t.reports.names) }));
   };
 
-  const handleCreateReport = (name: string, type: ReportType) => {
-    const report: Report = {
-      id: `r${Date.now()}`,
-      customName: name,
-      type,
-      status: "ready",
-      createdAt: new Date().toISOString().slice(0, 10),
-      rows: 0,
-    };
-    setReports((prev) => [report, ...prev]);
-    setModal(null);
-    setActivePage("reports");
-    toast(format(t.reports.created, { name }));
+  const handleCreateReport = async (name: string, type: ReportType) => {
+    try {
+      await api("/reports", { method: "POST", body: { name, type: type.toUpperCase() } });
+      setModal(null);
+      setActivePage("reports");
+      reports.reload();
+      toast(format(t.reports.created, { name }));
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const handleInvite = async (email: string) => {
+    try {
+      const res = await api<{ tempPassword: string }>("/team/invite", { method: "POST", body: { email } });
+      team.reload();
+      toast(format(t.team.invitedTemp, { email, password: res.tempPassword }));
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const handleSaveProfile = async (data: { name: string; phone: string; company: string }) => {
+    try {
+      const updated = await authApi.updateProfile(data);
+      user.setData(() => updated);
+      toast(t.settings.saved);
+    } catch (error) {
+      fail(error);
+    }
   };
 
   return (
@@ -103,35 +152,57 @@ function Dashboard() {
             onToggleMobileMenu={() => setMobileOpen((open) => !open)}
             onExport={handleExport}
             onNewReport={() => setModal("newReport")}
+            user={user.data}
+            onLogout={handleLogout}
           />
           <main className="flex-1 p-4 sm:p-7 lg:p-10">
             <div className="mb-5 flex gap-3 md:hidden">
               <button type="button" onClick={handleExport} className={`${secondaryButtonClass} flex-1`}>{t.common.export}</button>
               <button type="button" onClick={() => setModal("newReport")} className={`${secondaryButtonClass} flex-1`}>{t.common.newReport}</button>
             </div>
-            <OverviewPanels
-              page={activePage}
-              data={PAGE_DATA[activePage]}
-              onViewInsights={() => setModal("insights")}
-              onManageTeam={() => setModal("team")}
-            />
-            <StatsGrid stats={loaded && !isLoading ? loaded.data.stats : []} isLoading={isLoading} />
 
-            {activePage === "overview" && <OverviewChart />}
-            {activePage === "analytics" && <AnalyticsExtras />}
-            {activePage === "customers" && <CustomersView />}
-            {activePage === "reports" && (
-              <ReportsView reports={reports} onDownload={handleDownloadReport} onNew={() => setModal("newReport")} />
+            {page.error ? (
+              <ErrorCard onRetry={page.reload} />
+            ) : (
+              <>
+                {page.data ? (
+                  <OverviewPanels
+                    page={activePage}
+                    data={page.data}
+                    userName={user.data?.name ?? ""}
+                    onViewInsights={() => setModal("insights")}
+                    onManageTeam={() => setModal("team")}
+                  />
+                ) : (
+                  <div aria-busy="true" className={`${baseCardClass} mb-8 h-56 animate-pulse`} />
+                )}
+                <StatsGrid stats={page.data?.stats ?? []} isLoading={page.loading} />
+              </>
             )}
-            {activePage === "settings" && <SettingsView />}
 
-            <p className="mt-8 text-center text-xs text-slate-500 dark:text-slate-400">{t.common.demoNote}</p>
+            {activePage === "overview" && charts.data && <OverviewChart charts={charts.data} />}
+            {activePage === "analytics" && charts.data && <AnalyticsExtras charts={charts.data} />}
+            {activePage === "customers" &&
+              (customers.error ? <ErrorCard onRetry={customers.reload} /> : customers.data && <CustomersView customers={customers.data} />)}
+            {activePage === "reports" &&
+              (reports.error ? (
+                <ErrorCard onRetry={reports.reload} />
+              ) : (
+                reports.data && <ReportsView reports={reports.data} onDownload={handleDownloadReport} onNew={() => setModal("newReport")} />
+              ))}
+            {activePage === "settings" &&
+              user.data &&
+              (team.error ? (
+                <ErrorCard onRetry={team.reload} />
+              ) : (
+                team.data && <SettingsView user={user.data} members={team.data} onSaveProfile={handleSaveProfile} onInvite={handleInvite} />
+              ))}
           </main>
         </div>
       </div>
 
       <InsightsModal open={modal === "insights"} onClose={closeModal} page={activePage} />
-      <TeamModal open={modal === "team"} onClose={closeModal} />
+      <TeamModal open={modal === "team"} onClose={closeModal} members={team.data ?? []} onInvite={handleInvite} />
       <UpgradeModal
         open={modal === "upgrade"}
         onClose={closeModal}
@@ -152,3 +223,4 @@ export function DashboardClient() {
     </ToastProvider>
   );
 }
+

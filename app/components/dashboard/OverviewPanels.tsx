@@ -1,7 +1,7 @@
 "use client";
 
 import { format, useI18n } from "../../lib/i18n";
-import { DEMO_USER, type PageData, type PageId } from "../../lib/mock";
+import type { PageData, PageId } from "../../lib/api/types";
 import { baseCardClass, hoverLiftClass, mutedTextClass, primaryGradientClass, trendTextClass } from "./styles";
 
 type OverviewPanelsProps = {
@@ -9,15 +9,16 @@ type OverviewPanelsProps = {
   data: PageData;
   onViewInsights: () => void;
   onManageTeam: () => void;
+  userName: string;
 };
 
-export function OverviewPanels({ page, data, onViewInsights, onManageTeam }: OverviewPanelsProps) {
+export function OverviewPanels({ page, data, onViewInsights, onManageTeam, userName }: OverviewPanelsProps) {
   const { t } = useI18n();
   return (
     <>
       <section className="mb-8 grid gap-5 lg:grid-cols-3">
         <article className="rounded-2xl border border-slate-200 bg-linear-to-br from-indigo-500/20 via-sky-100 to-sky-400/10 p-6 shadow-[0_20px_45px_-30px_rgba(99,102,241,0.35)] transition-all duration-300 hover:border-indigo-400/50 dark:border-slate-800/80 dark:from-indigo-500/25 dark:via-slate-900 dark:to-sky-400/10 dark:shadow-[0_20px_45px_-30px_rgba(99,102,241,0.6)] sm:p-7 lg:col-span-2">
-          <p className="text-sm text-slate-700 dark:text-slate-300">{format(t.common.welcome, { name: DEMO_USER.firstName })}</p>
+          <p className="text-sm text-slate-700 dark:text-slate-300">{format(t.common.welcome, { name: userName.split(" ")[0] })}</p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 sm:text-3xl">{t.hero[page].title}</h2>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-700 dark:text-slate-300">{t.hero[page].desc}</p>
           <div className="mt-6 flex flex-wrap gap-3">

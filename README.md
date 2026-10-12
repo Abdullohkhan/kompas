@@ -34,3 +34,9 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+## PulseBoard (frontend + backend)
+
+- Frontend: Next.js 16 (App Router), React 19, Tailwind 4 — repo root. `npm run dev`.
+- Backend: NestJS + Prisma + PostgreSQL — [`backend/`](backend/README.md) (setup, API, Railway deploy).
+- The frontend proxies `/api/*` to `BACKEND_URL` (see `.env.example`), so the httpOnly login cookie stays first-party.

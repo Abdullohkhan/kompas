@@ -1,6 +1,5 @@
 import type { Dictionary } from "../../lib/i18n";
-import type { PageData, PageId, Report } from "../../lib/mock";
-import { PAGE_DATA } from "../../lib/mock";
+import type { PageData, PageId, Report } from "../../lib/api/types";
 import { reportName } from "./Views";
 
 const escapeCell = (value: string | number) => {
@@ -25,7 +24,7 @@ export function downloadCsv(filename: string, rows: (string | number)[][]) {
   URL.revokeObjectURL(url);
 }
 
-export function pageRows(t: Dictionary, page: PageId, data: PageData = PAGE_DATA[page]): (string | number)[][] {
+export function pageRows(t: Dictionary, page: PageId, data: PageData): (string | number)[][] {
   return [
     [t.export.section, t.export.colMetric, t.export.colValue, t.export.colTrend],
     ...data.stats.map((s) => [t.titles[page], t.stats[s.key].label, s.value, s.trend]),

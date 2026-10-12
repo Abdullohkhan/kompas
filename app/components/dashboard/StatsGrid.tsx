@@ -1,7 +1,7 @@
 "use client";
 
 import { useI18n } from "../../lib/i18n";
-import type { Stat } from "../../lib/mock";
+import type { Stat } from "../../lib/api/types";
 import { baseCardClass, hoverLiftClass, mutedTextClass, trendTextClass } from "./styles";
 
 type StatsGridProps = { stats: readonly Stat[]; isLoading?: boolean };

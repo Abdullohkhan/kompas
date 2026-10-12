@@ -1,20 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { format, LOCALES, useI18n } from "../../lib/i18n";
-import {
-  CUSTOMERS,
-  DEMO_USER,
-  REVENUE_BY_MONTH,
-  SESSIONS_BY_WEEKDAY,
-  TEAM,
-  TOP_PAGES,
-  type Report,
-} from "../../lib/mock";
+import { LOCALES, useI18n } from "../../lib/i18n";
+import type { Charts, Customer, Report, TeamMember, User } from "../../lib/api/types";
 import { useTheme } from "../../lib/theme";
 import { BarChart } from "./BarChart";
 import { baseCardClass, inputClass, mutedTextClass, primaryButtonClass, secondaryButtonClass } from "./styles";
-import { useToast } from "./ui";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 /** Deterministic dd.mm.yyyy so server and client render identically. */
@@ -26,7 +17,7 @@ const money = (n: number) => `$${n.toLocaleString("en-US")}`;
 
 /* ---------- Overview / Analytics extras ---------- */
 
-export function OverviewChart() {
+export function OverviewChart({ charts }: { charts: Charts }) {
   const { t, format: f } = useI18n();
   return (
     <div className="mt-8">
@@ -34,29 +25,30 @@ export function OverviewChart() {
         title={t.sections.revenueChart}
         ariaLabel={f(t.chart.ariaLabel, { title: t.sections.revenueChart })}
         labels={t.chart.months}
-        values={REVENUE_BY_MONTH}
+        values={charts.revenueByMonth}
         formatValue={(v) => `$${(v / 1000).toFixed(1)}k`}
       />
     </div>
   );
 }
 
-export function AnalyticsExtras() {
+export function AnalyticsExtras({ charts }: { charts: Charts }) {
   const { t, format: f } = useI18n();
-  const max = TOP_PAGES[0].views;
+  const topPages = charts.topPages;
+  const max = Math.max(1, ...topPages.map((p) => p.views));
   return (
     <div className="mt-8 grid gap-5 lg:grid-cols-2">
       <BarChart
         title={t.sections.sessionsChart}
         ariaLabel={f(t.chart.ariaLabel, { title: t.sections.sessionsChart })}
         labels={t.chart.weekdays}
-        values={SESSIONS_BY_WEEKDAY}
+        values={charts.sessionsByWeekday}
         formatValue={(v) => `${(v / 1000).toFixed(1)}k`}
       />
       <article className={`${baseCardClass} p-6`}>
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.sections.topPages}</h2>
         <ul className="mt-5 space-y-3.5">
-          {TOP_PAGES.map((page) => (
+          {topPages.map((page) => (
             <li key={page.path}>
               <div className="mb-1 flex justify-between gap-3 text-sm">
                 <span className="truncate font-mono text-xs text-slate-700 dark:text-slate-300 sm:text-sm">{page.path}</span>
@@ -83,14 +75,14 @@ const statusClass = {
   paused: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
 } as const;
 
-export function CustomersView() {
+export function CustomersView({ customers }: { customers: Customer[] }) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return CUSTOMERS;
-    return CUSTOMERS.filter((c) => `${c.name} ${c.email} ${c.company}`.toLowerCase().includes(q));
-  }, [query]);
+    if (!q) return customers;
+    return customers.filter((c) => `${c.name} ${c.email} ${c.company}`.toLowerCase().includes(q));
+  }, [query, customers]);
 
   return (
     <article className={`${baseCardClass} mt-8 p-4 sm:p-6`}>
@@ -186,11 +178,11 @@ export function ReportsView({ reports, onDownload, onNew }: ReportsViewProps) {
 
 /* ---------- Team (shared by Settings and the Manage Team modal) ---------- */
 
-export function TeamList() {
+export function TeamList({ members }: { members: TeamMember[] }) {
   const { t } = useI18n();
   return (
     <ul className="divide-y divide-slate-200 dark:divide-slate-800">
-      {TEAM.map((m) => (
+      {members.map((m) => (
         <li key={m.id} className="flex items-center justify-between gap-3 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
@@ -208,22 +200,27 @@ export function TeamList() {
   );
 }
 
-export function InviteForm() {
+export function InviteForm({ onInvite }: { onInvite: (email: string) => Promise<void> }) {
   const { t } = useI18n();
-  const toast = useToast();
   const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
   return (
     <form
       className="mt-4 flex flex-col gap-2 sm:flex-row"
-      onSubmit={(e) => {
+      onSubmit={async (e) => {
         e.preventDefault();
-        if (!email.trim()) return;
-        toast(format(t.team.invited, { email: email.trim() }));
-        setEmail("");
+        if (!email.trim() || busy) return;
+        setBusy(true);
+        try {
+          await onInvite(email.trim());
+          setEmail("");
+        } finally {
+          setBusy(false);
+        }
       }}
     >
-      <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t.team.invitePlaceholder} aria-label={t.team.inviteLabel} className={inputClass} />
-      <button type="submit" className={`${primaryButtonClass} shrink-0`}>{t.common.invite}</button>
+      <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t.team.invitePlaceholder} aria-label={t.team.inviteLabel} className={inputClass} />
+      <button type="submit" disabled={busy} className={`${primaryButtonClass} shrink-0 disabled:opacity-60`}>{t.common.invite}</button>
     </form>
   );
 }
@@ -242,15 +239,22 @@ function Toggle({ label, defaultOn }: { label: string; defaultOn?: boolean }) {
   );
 }
 
-export function SettingsView() {
+type SettingsViewProps = {
+  user: User;
+  members: TeamMember[];
+  onSaveProfile: (data: { name: string; phone: string; company: string }) => Promise<void>;
+  onInvite: (email: string) => Promise<void>;
+};
+
+export function SettingsView({ user, members, onSaveProfile, onInvite }: SettingsViewProps) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
-  const toast = useToast();
+  const [saving, setSaving] = useState(false);
   const fields = [
-    { key: "name", label: t.settings.name, value: DEMO_USER.name, type: "text" },
-    { key: "email", label: t.settings.email, value: DEMO_USER.email, type: "email" },
-    { key: "phone", label: t.settings.phone, value: DEMO_USER.phone, type: "tel" },
-    { key: "company", label: t.settings.company, value: DEMO_USER.company, type: "text" },
+    { key: "name", label: t.settings.name, value: user.name, type: "text", readOnly: false },
+    { key: "email", label: t.settings.email, value: user.email, type: "email", readOnly: true },
+    { key: "phone", label: t.settings.phone, value: user.phone ?? "", type: "tel", readOnly: false },
+    { key: "company", label: t.settings.company, value: user.company ?? "", type: "text", readOnly: false },
   ];
   const segment = (active: boolean) =>
     `rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
@@ -265,18 +269,28 @@ export function SettingsView() {
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.sections.profile}</h2>
         <form
           className="mt-4 space-y-3"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            toast(t.settings.saved);
+            const form = new FormData(e.currentTarget);
+            setSaving(true);
+            try {
+              await onSaveProfile({
+                name: String(form.get("name") ?? ""),
+                phone: String(form.get("phone") ?? ""),
+                company: String(form.get("company") ?? ""),
+              });
+            } finally {
+              setSaving(false);
+            }
           }}
         >
           {fields.map((f) => (
             <label key={f.key} className="block text-sm">
               <span className={mutedTextClass}>{f.label}</span>
-              <input type={f.type} defaultValue={f.value} className={`${inputClass} mt-1`} />
+              <input name={f.key} type={f.type} defaultValue={f.value} readOnly={f.readOnly} required={f.key === "name"} className={`${inputClass} mt-1 ${f.readOnly ? "opacity-70" : ""}`} />
             </label>
           ))}
-          <button type="submit" className={primaryButtonClass}>{t.common.save}</button>
+          <button type="submit" disabled={saving} className={`${primaryButtonClass} disabled:opacity-60`}>{t.common.save}</button>
         </form>
       </article>
 
@@ -310,8 +324,8 @@ export function SettingsView() {
 
       <article className={`${baseCardClass} p-6 lg:col-span-2`}>
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.sections.team}</h2>
-        <TeamList />
-        <InviteForm />
+        <TeamList members={members} />
+        <InviteForm onInvite={onInvite} />
       </article>
     </div>
   );

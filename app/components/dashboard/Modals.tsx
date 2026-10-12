@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
-import type { PageId, ReportType } from "../../lib/mock";
+import type { PageId, ReportType, TeamMember } from "../../lib/api/types";
 import { InviteForm, TeamList } from "./Views";
 import { inputClass, mutedTextClass, primaryButtonClass, secondaryButtonClass } from "./styles";
 import { Modal } from "./ui";
@@ -28,12 +28,12 @@ export function InsightsModal({ open, onClose, page }: BaseProps & { page: PageI
   );
 }
 
-export function TeamModal({ open, onClose }: BaseProps) {
+export function TeamModal({ open, onClose, members, onInvite }: BaseProps & { members: TeamMember[]; onInvite: (email: string) => Promise<void> }) {
   const { t } = useI18n();
   return (
     <Modal open={open} onClose={onClose} title={t.team.title} subtitle={t.team.subtitle}>
-      <TeamList />
-      <InviteForm />
+      <TeamList members={members} />
+      <InviteForm onInvite={onInvite} />
     </Modal>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useI18n } from "../../lib/i18n";
-import type { PageId } from "../../lib/mock";
+import type { PageId } from "../../lib/api/types";
 import { primaryButtonClass, primaryGradientClass } from "./styles";
 
 type SidebarProps = {
