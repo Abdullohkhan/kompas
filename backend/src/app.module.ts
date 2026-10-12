@@ -2,6 +2,11 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import { ActivityModule } from "./common/activity.service";
+import { PlanModule } from "./common/plan.service";
+import { BillingModule } from "./billing/billing.module";
+import { OrdersModule } from "./orders/orders.module";
+import { TrackModule } from "./track/track.module";
 import { AuthModule } from "./auth/auth.module";
 import { validateEnv } from "./config";
 import { HealthController } from "./common/health.controller";
@@ -16,11 +21,16 @@ import { TeamModule } from "./team/team.module";
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
     PrismaModule,
+    ActivityModule,
+    PlanModule,
     AuthModule,
     DashboardModule,
     CustomersModule,
     ReportsModule,
     TeamModule,
+    OrdersModule,
+    TrackModule,
+    BillingModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

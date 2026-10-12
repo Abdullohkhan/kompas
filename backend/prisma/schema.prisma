@@ -32,6 +32,28 @@ enum ReportType {
   OPS
 }
 
+enum CustomerSource {
+  REFERRALS
+  ORGANIC
+  PAID
+  PARTNERSHIPS
+}
+
+enum OrderStatus {
+  PAID
+  PENDING
+  REFUNDED
+}
+
+enum VisitSource {
+  SEARCH
+  PAID
+  SOCIAL
+  DIRECT
+  EMAIL
+  REFERRAL
+}
+
 enum ReportStatus {
   READY
   SCHEDULED
@@ -45,10 +67,12 @@ model User {
   phone        String?
   company      String?
   role         Role     @default(USER)
+  stripeCustomerId String? @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  reports Report[]
+  reports      Report[]
+  subscription Subscription?
 }
 
 model Customer {
@@ -59,8 +83,10 @@ model Customer {
   phone     String
   plan      PlanKey
   status    CustomerStatus
+  source    CustomerSource @default(ORGANIC)
   spent     Int            @default(0)
   joinedAt  DateTime
+  orders    Order[]
   createdAt DateTime       @default(now())
 
   @@index([status])
@@ -79,23 +105,62 @@ model Report {
   createdById String?
 }
 
-/// Per-page dashboard figures (stats, traffic split, activity) – one JSON row per page.
-model PageMetrics {
-  page         String @id // overview | analytics | customers | reports | settings
-  goalProgress Int
-  traffic      Json
-  activity     Json
-  stats        Json
+model Order {
+  id         String      @id @default(cuid())
+  number     Int         @unique @default(autoincrement())
+  amount     Int // whole USD
+  status     OrderStatus @default(PAID)
+  customer   Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerId String?
+  createdAt  DateTime    @default(now())
+
+  @@index([createdAt])
+  @@index([status, createdAt])
 }
 
-/// Time series for charts: "revenue" (6 monthly points) and "sessions" (7 weekday points).
-model ChartSeries {
-  key    String @id
-  values Json
+/// One website session. Written by POST /api/track (public, rate-limited) or by the seed.
+model Visit {
+  id          String      @id @default(cuid())
+  path        String
+  source      VisitSource @default(DIRECT)
+  pageviews   Int         @default(1)
+  durationSec Int         @default(0)
+  bounced     Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+
+  @@index([createdAt])
 }
 
-model TopPage {
-  id    Int    @id @default(autoincrement())
-  path  String @unique
-  views Int
+/// Event feed. `type` maps to a translated template in the frontend; `params` fill its placeholders.
+model Activity {
+  id        String   @id @default(cuid())
+  type      String
+  category  String // orders | customers | reports | team | billing | security
+  params    Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Key/value settings (monthly goals).
+model Setting {
+  key   String @id
+  value Int
+}
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId               String   @unique
+  stripeSubscriptionId String   @unique
+  status               String // Stripe status: active, trialing, past_due, canceled, ...
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean  @default(false)
+  updatedAt            DateTime @updatedAt
+}
+
+/// Stripe event ids already handled (webhook idempotency).
+model ProcessedWebhook {
+  id        String   @id
+  createdAt DateTime @default(now())
 }

@@ -6,6 +6,10 @@ export type Env = {
   NODE_ENV: string;
   CORS_ORIGIN?: string;
   ALLOW_REGISTRATION: boolean;
+  APP_URL: string;
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_ID?: string;
 };
 
 /** Fails fast at boot when a required secret is missing or weak. */
@@ -22,6 +26,11 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     PORT: Number(str("PORT")) || 4000,
     NODE_ENV: str("NODE_ENV") || "development",
     CORS_ORIGIN: str("CORS_ORIGIN") || undefined,
-    ALLOW_REGISTRATION: str("ALLOW_REGISTRATION") !== "false",
+    // Closed by default: accounts are created by the seed (first admin) or by admin invites.
+    ALLOW_REGISTRATION: str("ALLOW_REGISTRATION") === "true",
+    APP_URL: (str("APP_URL") || "http://localhost:3000").replace(/\/$/, ""),
+    STRIPE_SECRET_KEY: str("STRIPE_SECRET_KEY") || undefined,
+    STRIPE_WEBHOOK_SECRET: str("STRIPE_WEBHOOK_SECRET") || undefined,
+    STRIPE_PRICE_ID: str("STRIPE_PRICE_ID") || undefined,
   };
 }

@@ -16,3 +16,8 @@ export class UpdateProfileDto {
   @IsOptional() @IsString() @MaxLength(40) phone?: string;
   @IsOptional() @IsString() @MaxLength(120) company?: string;
 }
+
+export class ChangePasswordDto {
+  @IsString() @MaxLength(72) currentPassword: string;
+  @IsString() @MinLength(8) @MaxLength(72) newPassword: string;
+}

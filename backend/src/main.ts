@@ -5,7 +5,7 @@ import { AppModule } from "./app.module";
 import { configureApp } from "./setup";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true }) // raw body is needed to verify Stripe webhook signatures;
   // Railway (and most PaaS) terminate TLS at a proxy; trust it so secure cookies and rate limiting see the real client.
   app.getHttpAdapter().getInstance().set("trust proxy", 1);
   configureApp(app);

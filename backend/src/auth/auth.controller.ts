@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Throttle } from "@nestjs/throttler";
 import type { Response } from "express";
 import { CurrentUser, Public } from "./auth.decorators";
-import { LoginDto, RegisterDto, UpdateProfileDto } from "./auth.dto";
+import { ChangePasswordDto, LoginDto, RegisterDto, UpdateProfileDto } from "./auth.dto";
 import { AuthService, publicUser } from "./auth.service";
 import { AUTH_COOKIE, type AuthUser } from "./auth.types";
 import type { User } from "../generated/prisma/client";
@@ -25,6 +25,13 @@ export class AuthController {
       maxAge: WEEK_MS,
       path: "/",
     });
+  }
+
+  /** Lets the login page hide the sign-up form when registration is closed. */
+  @Public()
+  @Get("config")
+  authConfig() {
+    return { registration: this.config.get<boolean>("ALLOW_REGISTRATION") === true };
   }
 
   @Public()
@@ -56,6 +63,13 @@ export class AuthController {
   @Get("me")
   async me(@CurrentUser() user: AuthUser) {
     return { user: publicUser(await this.auth.me(user.id)) };
+  }
+
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @HttpCode(204)
+  @Post("change-password")
+  async changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
+    await this.auth.changePassword(user.id, dto);
   }
 
   @Patch("me")
