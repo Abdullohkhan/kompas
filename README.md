@@ -35,7 +35,7 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-## PulseBoard (frontend + backend)
+## Kompas (frontend + backend)
 
 - Frontend: Next.js 16 (App Router), React 19, Tailwind 4 — repo root. `npm run dev`.
 - Backend: NestJS + Prisma + PostgreSQL — [`backend/`](backend/README.md) (setup, API, Railway deploy).

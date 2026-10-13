@@ -4,6 +4,9 @@ import { useI18n } from "../../lib/i18n";
 import type { Stat } from "../../lib/api/types";
 import { baseCardClass, hoverLiftClass, mutedTextClass, trendTextClass } from "./styles";
 
+// A falling bounce rate is an improvement; for everything else a falling number is not.
+const isGood = (stat: Stat) => (stat.trend?.startsWith("-") ? stat.key === "bounceRate" : true);
+
 type StatsGridProps = { stats: readonly Stat[]; isLoading?: boolean };
 
 export function StatsGrid({ stats, isLoading = false }: StatsGridProps) {
@@ -28,9 +31,9 @@ export function StatsGrid({ stats, isLoading = false }: StatsGridProps) {
       {stats.map((stat) => (
         <article key={stat.key} className={`${baseCardClass} ${hoverLiftClass} p-5`}>
           <p className={`text-sm ${mutedTextClass}`}>{t.stats[stat.key].label}</p>
-          <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">{stat.value}</p>
+          <p className="mt-2 text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">{stat.key === "plan" ? (stat.value === "Pro" ? t.upgrade.proName : t.upgrade.freeName) : stat.value}</p>
           <div className="mt-3 flex items-center justify-between gap-2">
-            <p className={`text-sm font-semibold ${trendTextClass}`}>{stat.trend}</p>
+            <p className={`text-sm font-semibold ${isGood(stat) ? trendTextClass : "text-red-600 dark:text-red-400"}`}>{stat.trend ?? ""}</p>
             <p className={`text-right text-xs ${mutedTextClass}`}>{t.stats[stat.key].hint}</p>
           </div>
         </article>

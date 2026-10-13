@@ -5,6 +5,7 @@ import { PlanService } from "../common/plan.service";
 
 export type PageId = "overview" | "analytics" | "customers" | "reports" | "settings";
 type Stat = { key: string; value: string; trend: string | null };
+type Insight = { type: string; params: Record<string, string | number> };
 type GoalKind = "revenue" | "sessions" | "customers" | "reports" | "seats";
 
 const DAY = 86_400_000;
@@ -109,19 +110,26 @@ export class DashboardService {
 
     let stats: Stat[] = [];
     let current = 0;
+    const insights: Insight[] = [];
+    const top = traffic[0];
 
     if (page === "overview") {
-      const [cur, prev, s30, sPrev, customers, newCust] = await Promise.all([
+      const [cur, prev, s30, sPrev, customers, newCust, pending] = await Promise.all([
         this.paidRevenue(d30, now),
         this.paidRevenue(d60, d30),
         this.sessionStats(d30, now),
         this.sessionStats(d60, d30),
         this.prisma.customer.count(),
         this.prisma.customer.count({ where: { joinedAt: { gte: d30 } } }),
+        this.prisma.order.count({ where: { status: "PENDING", createdAt: { gte: d30 } } }),
       ]);
       const conv = s30.sessions ? (cur.orders / s30.sessions) * 100 : 0;
       const convPrev = sPrev.sessions ? (prev.orders / sPrev.sessions) * 100 : 0;
       current = cur.revenue;
+      if (top) insights.push({ type: "topSource", params: { key: top.key, n: top.value } });
+      const rc = change(cur.revenue, prev.revenue);
+      if (rc) insights.push({ type: "revenueChange", params: { pct: rc } });
+      if (pending) insights.push({ type: "pendingOrders", params: { n: pending } });
       stats = [
         { key: "revenue", value: money(cur.revenue), trend: change(cur.revenue, prev.revenue) },
         { key: "orders", value: num(cur.orders), trend: change(cur.orders, prev.orders) },
@@ -129,8 +137,17 @@ export class DashboardService {
         { key: "conversion", value: pctText(conv), trend: change(conv, convPrev) },
       ];
     } else if (page === "analytics") {
-      const [c, p] = await Promise.all([this.sessionStats(d30, now), this.sessionStats(d60, d30)]);
+      const [c, p, days] = await Promise.all([
+        this.sessionStats(d30, now),
+        this.sessionStats(d60, d30),
+        this.prisma.$queryRaw<{ dow: number; total: number }[]>(
+          Prisma.sql`SELECT EXTRACT(ISODOW FROM "createdAt")::int AS dow, COUNT(*)::int AS total FROM "Visit" WHERE "createdAt" >= ${d30} GROUP BY 1 ORDER BY 2 DESC LIMIT 1`,
+        ),
+      ]);
       current = c.sessions;
+      if (top) insights.push({ type: "topSource", params: { key: top.key, n: top.value } });
+      if (days[0]) insights.push({ type: "bestDay", params: { weekday: days[0].dow - 1 } });
+      if (c.sessions) insights.push({ type: "bounce", params: { n: Math.round(c.bounceRate) } });
       stats = [
         { key: "sessions", value: num(c.sessions), trend: change(c.sessions, p.sessions) },
         { key: "bounceRate", value: pctText(c.bounceRate), trend: change(c.bounceRate, p.bounceRate) },
@@ -147,6 +164,9 @@ export class DashboardService {
         this.prisma.customer.count({ where: { joinedAt: { gte: d30 } } }),
       ]);
       current = total;
+      if (paused) insights.push({ type: "churn", params: { n: paused } });
+      if (trials) insights.push({ type: "trials", params: { n: trials } });
+      if (top) insights.push({ type: "topCustomerSource", params: { key: top.key } });
       stats = [
         { key: "activeUsers", value: num(active), trend: delta(newCust) },
         { key: "churn", value: pctText(total ? (paused / total) * 100 : 0), trend: null },
@@ -163,6 +183,7 @@ export class DashboardService {
         this.prisma.report.count({ where: { createdAt: { gte: d60, lt: d30 } } }),
       ]);
       current = total;
+      insights.push(total ? { type: "scheduled", params: { n: scheduled } } : { type: "noReports", params: {} });
       stats = [
         { key: "generated", value: num(c30), trend: change(c30, c60) },
         { key: "automated", value: pctText(total ? (scheduled / total) * 100 : 0), trend: null },
@@ -178,6 +199,8 @@ export class DashboardService {
         this.plans.subscriptionFor(user.id),
       ]);
       current = users;
+      insights.push({ type: "seats", params: { used: users, total: target } });
+      if (users > complete) insights.push({ type: "incomplete", params: { n: users - complete } });
       stats = [
         { key: "teamSeats", value: `${users}/${target}`, trend: delta(newUsers) },
         { key: "admins", value: num(admins), trend: null },
@@ -191,6 +214,7 @@ export class DashboardService {
       traffic,
       activity: feed,
       stats,
+      insights: insights.slice(0, 3),
     };
   }
 

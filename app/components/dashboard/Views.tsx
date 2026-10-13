@@ -1,18 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { LOCALES, useI18n } from "../../lib/i18n";
-import type { Charts, Customer, Report, TeamMember, User } from "../../lib/api/types";
+import { format, LOCALES, useI18n } from "../../lib/i18n";
+import type { BillingStatus, Charts, Customer, Report, TeamMember, User } from "../../lib/api/types";
+import { formatDate } from "../../lib/api/format";
 import { useTheme } from "../../lib/theme";
 import { BarChart } from "./BarChart";
 import { baseCardClass, inputClass, mutedTextClass, primaryButtonClass, secondaryButtonClass } from "./styles";
 
-const pad = (n: number) => String(n).padStart(2, "0");
-/** Deterministic dd.mm.yyyy so server and client render identically. */
-const formatDate = (iso: string) => {
-  const [y, m, d] = iso.split("-").map(Number);
-  return `${pad(d)}.${pad(m)}.${y}`;
-};
 const money = (n: number) => `$${n.toLocaleString("en-US")}`;
 
 /* ---------- Overview / Analytics extras ---------- */
@@ -24,8 +19,8 @@ export function OverviewChart({ charts }: { charts: Charts }) {
       <BarChart
         title={t.sections.revenueChart}
         ariaLabel={f(t.chart.ariaLabel, { title: t.sections.revenueChart })}
-        labels={t.chart.months}
-        values={charts.revenueByMonth}
+        labels={charts.revenueByMonth.map((p) => t.chart.months[p.month])}
+        values={charts.revenueByMonth.map((p) => p.value)}
         formatValue={(v) => `$${(v / 1000).toFixed(1)}k`}
       />
     </div>
@@ -41,8 +36,8 @@ export function AnalyticsExtras({ charts }: { charts: Charts }) {
       <BarChart
         title={t.sections.sessionsChart}
         ariaLabel={f(t.chart.ariaLabel, { title: t.sections.sessionsChart })}
-        labels={t.chart.weekdays}
-        values={charts.sessionsByWeekday}
+        labels={charts.sessionsByDay.map((p) => t.chart.weekdays[p.weekday])}
+        values={charts.sessionsByDay.map((p) => p.value)}
         formatValue={(v) => `${(v / 1000).toFixed(1)}k`}
       />
       <article className={`${baseCardClass} p-6`}>
@@ -75,7 +70,9 @@ const statusClass = {
   paused: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
 } as const;
 
-export function CustomersView({ customers }: { customers: Customer[] }) {
+type CustomersViewProps = { customers: Customer[]; isAdmin: boolean; onAdd: () => void; onRemove: (customer: Customer) => void };
+
+export function CustomersView({ customers, isAdmin, onAdd, onRemove }: CustomersViewProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const rows = useMemo(() => {
@@ -88,14 +85,21 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
     <article className={`${baseCardClass} mt-8 p-4 sm:p-6`}>
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.nav.customers}</h2>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t.common.searchPlaceholder}
-          aria-label={t.common.search}
-          className={`${inputClass} sm:max-w-xs`}
-        />
+        <div className="flex gap-2 sm:items-center">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.common.searchPlaceholder}
+            aria-label={t.common.search}
+            className={`${inputClass} sm:w-64`}
+          />
+          {isAdmin && (
+            <button type="button" onClick={onAdd} className={`${primaryButtonClass} shrink-0`}>
+              {t.customers.add}
+            </button>
+          )}
+        </div>
       </div>
       {rows.length === 0 ? (
         <div className="py-10 text-center">
@@ -107,8 +111,8 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className={`text-xs uppercase tracking-wide ${mutedTextClass}`}>
               <tr>
-                {[t.customers.colName, t.customers.colCompany, t.customers.colPlan, t.customers.colStatus, t.customers.colSpent, t.customers.colJoined].map((h) => (
-                  <th key={h} scope="col" className="px-3 py-2 font-medium">{h}</th>
+                {[t.customers.colName, t.customers.colCompany, t.customers.colPlan, t.customers.colStatus, t.customers.colSpent, t.customers.colJoined, ...(isAdmin ? [""] : [])].map((h, i) => (
+                  <th key={i} scope="col" className="px-3 py-2 font-medium">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -126,6 +130,13 @@ export function CustomersView({ customers }: { customers: Customer[] }) {
                   </td>
                   <td className="px-3 py-3 text-slate-900 dark:text-slate-100">{money(c.spent)}</td>
                   <td className={`px-3 py-3 ${mutedTextClass}`}>{formatDate(c.joined)}</td>
+                  {isAdmin && (
+                    <td className="px-3 py-3 text-right">
+                      <button type="button" onClick={() => onRemove(c)} className="text-xs font-medium text-red-600 hover:underline dark:text-red-400">
+                        {t.customers.remove}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -244,9 +255,48 @@ type SettingsViewProps = {
   members: TeamMember[];
   onSaveProfile: (data: { name: string; phone: string; company: string }) => Promise<void>;
   onInvite: (email: string) => Promise<void>;
+  onChangePassword: (current: string, next: string) => Promise<boolean>;
+  billing: BillingStatus | undefined;
+  onUpgrade: () => void;
+  onManageBilling: () => void;
 };
 
-export function SettingsView({ user, members, onSaveProfile, onInvite }: SettingsViewProps) {
+function PasswordCard({ onChangePassword }: { onChangePassword: (current: string, next: string) => Promise<boolean> }) {
+  const { t } = useI18n();
+  const [busy, setBusy] = useState(false);
+  return (
+    <article className={`${baseCardClass} p-6`}>
+      <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.settings.changePassword}</h2>
+      <form
+        className="mt-4 space-y-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const form = e.currentTarget;
+          const data = new FormData(form);
+          setBusy(true);
+          try {
+            if (await onChangePassword(String(data.get("current")), String(data.get("next")))) form.reset();
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <label className="block text-sm">
+          <span className={mutedTextClass}>{t.settings.currentPassword}</span>
+          <input name="current" type="password" required autoComplete="current-password" maxLength={72} className={`${inputClass} mt-1`} />
+        </label>
+        <label className="block text-sm">
+          <span className={mutedTextClass}>{t.settings.newPassword}</span>
+          <input name="next" type="password" required minLength={8} maxLength={72} autoComplete="new-password" className={`${inputClass} mt-1`} />
+          <span className={`mt-1 block text-xs ${mutedTextClass}`}>{t.auth.passwordHint}</span>
+        </label>
+        <button type="submit" disabled={busy} className={`${primaryButtonClass} disabled:opacity-60`}>{t.common.save}</button>
+      </form>
+    </article>
+  );
+}
+
+export function SettingsView({ user, members, onSaveProfile, onInvite, onChangePassword, billing, onUpgrade, onManageBilling }: SettingsViewProps) {
   const { t, locale, setLocale } = useI18n();
   const { theme, setTheme } = useTheme();
   const [saving, setSaving] = useState(false);
@@ -311,6 +361,22 @@ export function SettingsView({ user, members, onSaveProfile, onInvite }: Setting
             <button type="button" aria-pressed={theme === "dark"} onClick={() => setTheme("dark")} className={segment(theme === "dark")}>{t.settings.dark}</button>
           </div>
         </article>
+
+        <article className={`${baseCardClass} p-6`}>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.sections.billing}</h2>
+          <p className="mt-3 text-sm text-slate-700 dark:text-slate-300">
+            {billing?.plan === "pro" ? t.upgrade.proName : t.upgrade.freeName}
+            {billing?.viaSubscription && billing.currentPeriodEnd
+              ? ` · ${format(billing.cancelAtPeriodEnd ? t.upgrade.endsOn : t.upgrade.renews, { date: formatDate(billing.currentPeriodEnd) })}`
+              : ""}
+          </p>
+          {billing?.plan === "pro" && !billing.viaSubscription && <p className={`mt-1 text-xs ${mutedTextClass}`}>{t.upgrade.adminNote}</p>}
+          <button type="button" onClick={billing?.viaSubscription ? onManageBilling : onUpgrade} className={`${primaryButtonClass} mt-4`}>
+            {billing?.viaSubscription ? t.upgrade.manage : t.upgrade.startTrial}
+          </button>
+        </article>
+
+        <PasswordCard onChangePassword={onChangePassword} />
 
         <article className={`${baseCardClass} p-6`}>
           <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t.sections.notifications}</h2>

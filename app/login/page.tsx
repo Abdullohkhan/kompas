@@ -1,13 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { ApiError, authApi } from "../lib/api/client";
+import { Logo } from "../components/Logo";
+import { ApiError, authApi, useFetch } from "../lib/api/client";
 import { useI18n } from "../lib/i18n";
 import { LanguageSwitcher, ThemeToggle } from "../components/dashboard/Switchers";
 import { baseCardClass, inputClass, mutedTextClass, primaryButtonClass } from "../components/dashboard/styles";
 
 export default function LoginPage() {
   const { t } = useI18n();
+  const config = useFetch<{ registration: boolean }>("/auth/config");
+  const canRegister = config.data?.registration === true;
   const [mode, setMode] = useState<"login" | "register">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -36,7 +39,7 @@ export default function LoginPage() {
     }
   };
 
-  const isLogin = mode === "login";
+  const isLogin = mode === "login" || !canRegister;
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="absolute right-4 top-4 flex items-center gap-2">
@@ -45,7 +48,7 @@ export default function LoginPage() {
       </div>
       <form onSubmit={submit} className={`${baseCardClass} w-full max-w-sm space-y-4 p-6 shadow-xl sm:p-8`}>
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-linear-to-br from-sky-400 to-indigo-500" />
+          <Logo size={32} className="rounded-lg" />
           <p className="text-lg font-semibold tracking-tight">{t.brand}</p>
         </div>
         <div>
@@ -84,19 +87,23 @@ export default function LoginPage() {
         <button type="submit" disabled={busy} className={`${primaryButtonClass} w-full disabled:opacity-60`}>
           {isLogin ? t.auth.signIn : t.auth.signUp}
         </button>
-        <p className={`text-center text-sm ${mutedTextClass}`}>
-          {isLogin ? t.auth.noAccount : t.auth.haveAccount}{" "}
-          <button
-            type="button"
-            onClick={() => {
-              setMode(isLogin ? "register" : "login");
-              setError(null);
-            }}
-            className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
-          >
-            {isLogin ? t.auth.signUp : t.auth.signIn}
-          </button>
-        </p>
+        {canRegister ? (
+          <p className={`text-center text-sm ${mutedTextClass}`}>
+            {isLogin ? t.auth.noAccount : t.auth.haveAccount}{" "}
+            <button
+              type="button"
+              onClick={() => {
+                setMode(isLogin ? "register" : "login");
+                setError(null);
+              }}
+              className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+            >
+              {isLogin ? t.auth.signUp : t.auth.signIn}
+            </button>
+          </p>
+        ) : (
+          <p className={`text-center text-xs ${mutedTextClass}`}>{t.auth.inviteOnly}</p>
+        )}
       </form>
     </main>
   );

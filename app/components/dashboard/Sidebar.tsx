@@ -1,20 +1,23 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 import { useI18n } from "../../lib/i18n";
-import type { PageId } from "../../lib/api/types";
+import { pageHref, type BillingStatus, type PageId } from "../../lib/api/types";
+import { Logo } from "../Logo";
 import { primaryButtonClass, primaryGradientClass } from "./styles";
 
 type SidebarProps = {
   links: readonly PageId[];
   activeLink: PageId;
-  onSelectLink: (link: PageId) => void;
   isMobileOpen: boolean;
   onCloseMobile: () => void;
   onUpgrade: () => void;
+  onManageBilling: () => void;
+  billing: BillingStatus | undefined;
 };
 
-export function Sidebar({ links, activeLink, onSelectLink, isMobileOpen, onCloseMobile, onUpgrade }: SidebarProps) {
+export function Sidebar({ links, activeLink, isMobileOpen, onCloseMobile, onUpgrade, onManageBilling, billing }: SidebarProps) {
   const { t } = useI18n();
 
   useEffect(() => {
@@ -33,19 +36,16 @@ export function Sidebar({ links, activeLink, onSelectLink, isMobileOpen, onClose
   const navContent = (
     <>
       <div className="mb-10 flex items-center gap-3">
-        <div className="h-8 w-8 rounded-lg bg-linear-to-br from-sky-400 to-indigo-500 shadow-[0_0_30px_rgba(56,189,248,0.35)]" />
+        <Logo size={32} className="rounded-lg shadow-[0_0_30px_rgba(56,189,248,0.35)]" />
         <p className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{t.brand}</p>
       </div>
       <nav aria-label={t.header.mainMenu} className="space-y-2">
         {links.map((link) => (
-          <button
-            type="button"
+          <Link
             key={link}
-            onClick={() => {
-              onSelectLink(link);
-              onCloseMobile();
-            }}
-            className={`w-full rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-sky-500 ${
+            href={pageHref(link)}
+            onClick={onCloseMobile}
+            className={`block w-full rounded-xl px-3.5 py-2.5 text-left text-sm font-medium transition-all duration-200 focus-visible:outline-2 focus-visible:outline-sky-500 ${
               link === activeLink
                 ? `${primaryGradientClass} text-slate-950 shadow-lg shadow-sky-500/20`
                 : "text-slate-600 hover:translate-x-1 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800/80 dark:hover:text-white"
@@ -53,21 +53,24 @@ export function Sidebar({ links, activeLink, onSelectLink, isMobileOpen, onClose
             aria-current={link === activeLink ? "page" : undefined}
           >
             {t.nav[link]}
-          </button>
+          </Link>
         ))}
       </nav>
       <div className="mt-auto rounded-2xl border border-sky-400/30 bg-linear-to-br from-sky-500/15 to-indigo-500/10 p-5">
-        <p className="text-sm font-semibold text-sky-700 dark:text-sky-300">{t.upgrade.cardTitle}</p>
-        <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">{t.upgrade.cardDesc}</p>
+        <p className="text-sm font-semibold text-sky-700 dark:text-sky-300">{billing?.viaSubscription ? t.upgrade.active : t.upgrade.cardTitle}</p>
+        <p className="mt-2 text-xs leading-relaxed text-slate-600 dark:text-slate-300">
+          {billing?.viaSubscription ? t.upgrade.cardDesc : billing?.plan === "pro" ? t.upgrade.adminNote : t.upgrade.cardDesc}
+        </p>
         <button
           type="button"
           onClick={() => {
             onCloseMobile();
-            onUpgrade();
+            if (billing?.viaSubscription) onManageBilling();
+            else onUpgrade();
           }}
           className={`${primaryButtonClass} mt-4 w-full`}
         >
-          {t.upgrade.startTrial}
+          {billing?.viaSubscription ? t.upgrade.manage : t.upgrade.startTrial}
         </button>
       </div>
     </>

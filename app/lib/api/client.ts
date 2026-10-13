@@ -40,6 +40,24 @@ export async function api<T>(path: string, { method = "GET", body, redirectOn401
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** Downloads a file produced by the server (e.g. CSV export) through the authenticated API. */
+export async function downloadFromApi(path: string, fallbackName: string): Promise<string> {
+  const res = await fetch(`${BASE}${path}`, { credentials: "same-origin" });
+  if (res.status === 401) window.location.assign("/login");
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const name = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  return name;
+}
+
 /* ---- backend (UPPER_CASE enums, Date strings) -> UI shapes ---- */
 
 type RawUser = Omit<User, "role"> & { role: "ADMIN" | "USER" };
@@ -73,6 +91,9 @@ type RawMember = { id: string; name: string; email: string; role: "ADMIN" | "USE
 export const toMember = (m: RawMember): TeamMember => ({ ...m, role: m.role.toLowerCase() as Role });
 
 export const authApi = {
+  config: () => api<{ registration: boolean }>("/auth/config", { redirectOn401: false }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api<void>("/auth/change-password", { method: "POST", body: { currentPassword, newPassword } }),
   login: (email: string, password: string) =>
     api<{ user: RawUser }>("/auth/login", { method: "POST", body: { email, password }, redirectOn401: false }).then((r) => toUser(r.user)),
   register: (name: string, email: string, password: string) =>

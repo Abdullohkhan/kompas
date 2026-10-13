@@ -2,30 +2,45 @@ import type { Dictionary } from "../i18n";
 
 export type PageId = "overview" | "analytics" | "customers" | "reports" | "settings";
 export const PAGE_IDS: readonly PageId[] = ["overview", "analytics", "customers", "reports", "settings"];
+export const pageHref = (page: PageId) => (page === "overview" ? "/" : `/${page}`);
 
 export type TrafficKey = keyof Dictionary["traffic"];
-export type ActivityKey = keyof Dictionary["activity"];
 export type StatKey = keyof Dictionary["stats"];
 export type ReportNameKey = keyof Dictionary["reports"]["names"];
 export type ReportType = keyof Dictionary["reports"]["types"];
 export type ReportStatus = keyof Dictionary["reports"]["status"];
 export type PlanKey = keyof Dictionary["customers"]["plan"];
 export type CustomerStatus = keyof Dictionary["customers"]["status"];
+export type CustomerSource = "referrals" | "organic" | "paid" | "partnerships";
 export type Role = "admin" | "user";
 
-export type Stat = { key: StatKey; value: string; trend: string };
+export type Stat = { key: StatKey; value: string; trend: string | null };
 export type TrafficSource = { key: TrafficKey; value: number };
+export type ActivityEvent = { id: string; type: string; params: Record<string, string | number> | null; createdAt: string };
+export type Insight = { type: string; params: Record<string, string | number> };
+export type GoalKind = "revenue" | "sessions" | "customers" | "reports" | "seats";
+
 export type PageData = {
-  goalProgress: number;
+  goal: { kind: GoalKind; current: number; target: number; progress: number };
   traffic: TrafficSource[];
-  activity: ActivityKey[];
+  activity: ActivityEvent[];
   stats: Stat[];
+  insights: Insight[];
 };
 
 export type Charts = {
-  revenueByMonth: number[];
-  sessionsByWeekday: number[];
+  revenueByMonth: { month: number; value: number }[];
+  sessionsByDay: { weekday: number; value: number }[];
   topPages: { path: string; views: number }[];
+};
+
+export type BillingStatus = {
+  configured: boolean;
+  plan: "free" | "pro";
+  viaSubscription: boolean;
+  status: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
 };
 
 export type User = {

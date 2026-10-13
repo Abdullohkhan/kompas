@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useI18n } from "../../lib/i18n";
-import type { PageId, User } from "../../lib/api/types";
+import { pageHref, type PageId, type User } from "../../lib/api/types";
 import { LanguageSwitcher, ThemeToggle } from "./Switchers";
 import { primaryGradientClass, secondaryButtonClass } from "./styles";
 
@@ -10,7 +11,6 @@ const initials = (name: string) => name.split(" ").filter(Boolean).slice(0, 2).m
 type NavbarProps = {
   links: readonly PageId[];
   activeLink: PageId;
-  onSelectLink: (link: PageId) => void;
   onToggleMobileMenu: () => void;
   onExport: () => void;
   onNewReport: () => void;
@@ -18,7 +18,7 @@ type NavbarProps = {
   onLogout: () => void;
 };
 
-export function Navbar({ links, activeLink, onSelectLink, onToggleMobileMenu, onExport, onNewReport, user, onLogout }: NavbarProps) {
+export function Navbar({ links, activeLink, onToggleMobileMenu, onExport, onNewReport, user, onLogout }: NavbarProps) {
   const { t } = useI18n();
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl dark:border-slate-800/70 dark:bg-slate-950/70">
@@ -68,10 +68,9 @@ export function Navbar({ links, activeLink, onSelectLink, onToggleMobileMenu, on
       <div className="overflow-x-auto border-t border-slate-200/80 px-4 py-2.5 dark:border-slate-800/80 lg:hidden">
         <div className="flex gap-2.5">
           {links.map((link) => (
-            <button
-              type="button"
+            <Link
               key={link}
-              onClick={() => onSelectLink(link)}
+              href={pageHref(link)}
               className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors duration-200 ${
                 link === activeLink
                   ? `${primaryGradientClass} text-slate-950`
@@ -80,7 +79,7 @@ export function Navbar({ links, activeLink, onSelectLink, onToggleMobileMenu, on
               aria-current={link === activeLink ? "page" : undefined}
             >
               {t.nav[link]}
-            </button>
+            </Link>
           ))}
         </div>
       </div>

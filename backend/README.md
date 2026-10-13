@@ -1,4 +1,4 @@
-# PulseBoard backend
+# Kompas backend
 
 NestJS 11 + Prisma 7 + PostgreSQL. JWT in an httpOnly cookie, bcrypt passwords, roles `ADMIN` / `USER`.
 
@@ -16,31 +16,50 @@ npm test                        # e2e tests (need the database above)
 
 Then run the frontend from the repo root (`npm run dev`); it proxies `/api/*` to `BACKEND_URL`.
 
-## API (all under `/api`, JWT required unless noted)
+## API (all under `/api`, JWT cookie or `Authorization: Bearer` required unless noted)
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/auth/register` (public) | creates a `USER`; disable with `ALLOW_REGISTRATION=false` |
-| POST | `/auth/login` (public) | sets httpOnly cookie `pulse_token` |
-| POST | `/auth/logout` (public) | clears cookie |
+| GET | `/auth/config` (public) | `{registration}` – whether sign-up is open |
+| POST | `/auth/register` (public) | only when `ALLOW_REGISTRATION=true` (**closed by default**); creates a `USER` |
+| POST | `/auth/login`, `/auth/logout` (public) | httpOnly cookie `kompas_token` |
 | GET / PATCH | `/auth/me` | profile (name, phone, company) |
-| GET | `/dashboard/:page`, `/dashboard/charts` | stats, traffic, activity, chart series |
-| GET | `/customers?q=` | search; POST/PATCH/DELETE are **ADMIN** only |
-| GET / POST / DELETE | `/reports` | delete: author or admin |
-| GET | `/team` | POST `/team/invite` is **ADMIN** only (returns a one-time temp password) |
+| POST | `/auth/change-password` | needs current password |
+| GET | `/dashboard/:page`, `/dashboard/charts` | **computed from DB**: stats, goal, traffic split, activity feed, insights |
+| GET | `/dashboard/:page/export` | CSV, **Pro/admin** |
+| PATCH | `/dashboard/goals` | **ADMIN** – monthly targets |
+| GET / POST | `/orders` | POST is **ADMIN** |
+| POST | `/track` (public, rate-limited) | ingest a website session (`path`, `source`, `pageviews`, `durationSec`) |
+| GET | `/customers?q=` | POST/PATCH/DELETE are **ADMIN** |
+| GET / POST / DELETE | `/reports` | free plan: max 3 reports per user (402 `plan_limit`) |
+| GET | `/reports/:id/export` | real CSV (sales / finance / marketing / ops), **Pro/admin** |
+| GET | `/team` | POST `/team/invite` is **ADMIN** (returns a one-time temp password) |
+| GET | `/billing/status` | plan + subscription state |
+| POST | `/billing/checkout`, `/billing/portal` | Stripe Checkout / Customer Portal URLs (503 until Stripe is configured) |
+| POST | `/billing/webhook` (public) | verified with `STRIPE_WEBHOOK_SECRET`, idempotent |
 | GET | `/health` (public) | DB check for Railway |
+
+### Where the numbers come from
+Revenue/orders/conversion → `Order` + `Visit`; traffic split → `Visit.source` (or customers/reports/activity per page);
+feed → `Activity` (written by every mutation); charts → SQL aggregates; goals → `Setting` rows (admin editable).
+To feed real traffic, POST sessions to `/api/track` from your website (set `CORS_ORIGIN` to that site).
+
+### Stripe setup
+1. Stripe Dashboard → create a product with a recurring **price** → `STRIPE_PRICE_ID`.
+2. API keys → `STRIPE_SECRET_KEY`.
+3. Webhooks → endpoint `https://<backend-domain>/api/billing/webhook`, events: `checkout.session.completed`,
+   `customer.subscription.created|updated|deleted`, `invoice.payment_failed` → `STRIPE_WEBHOOK_SECRET`.
+4. Set `APP_URL` to the frontend URL (Checkout success/cancel redirects).
+Test locally with `stripe listen --forward-to localhost:4000/api/billing/webhook`.
 
 ## Deploy on Railway
 
-1. New project → add **PostgreSQL**. 
+1. New project → add **PostgreSQL**.
 2. Add a service from this repo, **Root Directory `backend`**. Variables:
    `DATABASE_URL=${{Postgres.DATABASE_URL}}`, `JWT_SECRET` (`openssl rand -hex 32`), `NODE_ENV=production`,
-   `SEED_ADMIN_PASSWORD` (only for the first seed). `railway.json` sets build/start/healthcheck;
-   start runs `prisma migrate deploy` first.
-3. Seed once (Railway shell / `railway run npm run db:seed`). Use `SEED_DEMO_DATA=false` for an admin-only database.
-4. Add a second service for the frontend (Root Directory `/`): variable `BACKEND_URL` = the backend's
-   URL (public domain or `http://<backend>.railway.internal:<PORT>`). It is read **at build time**, so redeploy after changing it.
-5. Set `ALLOW_REGISTRATION=false` once your real admin account exists.
-
-Notes: the dashboard's per-page stats, traffic split, activity feed and chart series are stored as seeded
-rows (`PageMetrics`, `ChartSeries`, `TopPage`); customers, reports, users and team are real CRUD data.
+   `APP_URL`, the `STRIPE_*` variables, and `SEED_ADMIN_PASSWORD` (first seed only). `railway.json` sets
+   build/start/healthcheck; start runs `prisma migrate deploy` first.
+3. Seed once (`railway run npm run db:seed`). `SEED_DEMO_DATA=false` creates only the admin user.
+4. Frontend service (Root Directory `/`): `BACKEND_URL` = backend URL (public domain or
+   `http://<backend>.railway.internal:<PORT>`). Read **at build time** — redeploy after changing it.
+5. Keep `ALLOW_REGISTRATION` unset/`false`; add people with admin invites.

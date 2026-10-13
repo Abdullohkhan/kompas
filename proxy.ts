@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 
 // Optimistic gate only: it checks that the auth cookie exists. The backend verifies the JWT on
 // every API call and the client redirects to /login on a 401, so a forged cookie gets no data.
-const AUTH_COOKIE = "pulse_token";
+const AUTH_COOKIE = "kompas_token";
 
 export function proxy(request: NextRequest) {
   const hasToken = Boolean(request.cookies.get(AUTH_COOKIE)?.value);

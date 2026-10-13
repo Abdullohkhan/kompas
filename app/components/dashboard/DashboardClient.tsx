@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { format, useI18n } from "../../lib/i18n";
 import {
   api,
   ApiError,
   authApi,
+  downloadFromApi,
   toCustomer,
   toMember,
   toReport,
@@ -14,6 +15,7 @@ import {
 } from "../../lib/api/client";
 import {
   PAGE_IDS,
+  type BillingStatus,
   type Charts,
   type Customer,
   type PageData,
@@ -23,8 +25,7 @@ import {
   type TeamMember,
   type User,
 } from "../../lib/api/types";
-import { downloadCsv, pageRows, reportRows } from "./export";
-import { InsightsModal, NewReportModal, TeamModal, UpgradeModal } from "./Modals";
+import { InsightsModal, NewCustomerModal, NewOrderModal, NewReportModal, TeamModal, UpgradeModal, type NewCustomer } from "./Modals";
 import { Navbar } from "./Navbar";
 import { OverviewPanels } from "./OverviewPanels";
 import { Sidebar } from "./Sidebar";
@@ -40,7 +41,7 @@ import {
   SettingsView,
 } from "./Views";
 
-type ModalName = "insights" | "team" | "upgrade" | "newReport" | null;
+type ModalName = "insights" | "team" | "upgrade" | "newReport" | "newOrder" | "newCustomer" | null;
 
 // Module-level so useFetch sees stable references.
 const mapUser = (raw: { user: Parameters<typeof toUser>[0] }) => toUser(raw.user);
@@ -60,25 +61,55 @@ function ErrorCard({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function Dashboard() {
+function Dashboard({ page: activePage }: { page: PageId }) {
   const { t } = useI18n();
   const toast = useToast();
-  const [activePage, setActivePage] = useState<PageId>("overview");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [modal, setModal] = useState<ModalName>(null);
 
   const user = useFetch<User>("/auth/me", mapUser);
+  const billing = useFetch<BillingStatus>("/billing/status");
   const page = useFetch<PageData>(`/dashboard/${activePage}`);
-  const charts = useFetch<Charts>("/dashboard/charts");
-  const customers = useFetch<Customer[]>(activePage === "customers" ? "/customers" : null, mapCustomers);
+  const charts = useFetch<Charts>(activePage === "overview" || activePage === "analytics" ? "/dashboard/charts" : null);
+  const customers = useFetch<Customer[]>(activePage === "customers" || modal === "newOrder" ? "/customers" : null, mapCustomers);
   const reports = useFetch<Report[]>(activePage === "reports" ? "/reports" : null, mapReports);
   const team = useFetch<TeamMember[]>(activePage === "settings" || modal === "team" ? "/team" : null, mapMembers);
 
+  const isAdmin = user.data?.role === "admin";
   const closeModal = useCallback(() => setModal(null), []);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
+  const reloadBilling = billing.reload;
+
+  // Back from Stripe Checkout: tell the user, then poll briefly while the webhook activates the plan.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get("billing");
+    if (!result) return;
+    window.history.replaceState(null, "", window.location.pathname);
+    const timers: number[] = [];
+    timers.push(
+      window.setTimeout(() => {
+        toast(result === "success" ? t.upgrade.success : t.upgrade.cancelled);
+      }, 0),
+    );
+    if (result === "success") {
+      for (let i = 1; i <= 5; i++) timers.push(window.setTimeout(reloadBilling, i * 2000));
+    }
+    return () => timers.forEach((id) => window.clearTimeout(id));
+    // runs once per mount; the query string is consumed above
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fail = (error: unknown) => {
-    toast(error instanceof ApiError && error.status === 403 ? t.errors.forbidden : t.errors.generic);
+    if (error instanceof ApiError && error.status === 402) {
+      toast(t.errors.planLimit);
+      setModal("upgrade");
+    } else if (error instanceof ApiError && error.status === 403) {
+      toast(error.message === "pro_required" ? t.errors.proRequired : t.errors.forbidden);
+      if (error.message === "pro_required") setModal("upgrade");
+    } else {
+      toast(t.errors.generic);
+    }
   };
 
   const handleLogout = async () => {
@@ -89,25 +120,65 @@ function Dashboard() {
     }
   };
 
-  const handleExport = () => {
-    if (!page.data) return;
-    const file = `pulseboard-${activePage}.csv`;
-    downloadCsv(file, pageRows(t, activePage, page.data));
-    toast(format(t.export.done, { file }));
+  const download = async (path: string, fallback: string, doneMessage: (file: string) => string) => {
+    try {
+      toast(doneMessage(await downloadFromApi(path, fallback)));
+    } catch (error) {
+      fail(error);
+    }
   };
 
-  const handleDownloadReport = (report: Report) => {
-    downloadCsv(`report-${report.id}.csv`, reportRows(t, report));
-    toast(format(t.reports.downloaded, { name: reportName(report, t.reports.names) }));
-  };
+  const handleExport = () =>
+    download(`/dashboard/${activePage}/export`, `kompas-${activePage}.csv`, (file) => format(t.export.done, { file }));
+
+  const handleDownloadReport = (report: Report) =>
+    download(`/reports/${report.id}/export`, `kompas-report-${report.id}.csv`, () =>
+      format(t.reports.downloaded, { name: reportName(report, t.reports.names) }),
+    );
 
   const handleCreateReport = async (name: string, type: ReportType) => {
     try {
       await api("/reports", { method: "POST", body: { name, type: type.toUpperCase() } });
       setModal(null);
-      setActivePage("reports");
-      reports.reload();
       toast(format(t.reports.created, { name }));
+      if (activePage === "reports") reports.reload();
+      else window.location.assign("/reports");
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const handleCreateOrder = async (amount: number, customerId?: string) => {
+    try {
+      const order = await api<{ number: number }>("/orders", { method: "POST", body: { amount, customerId } });
+      setModal(null);
+      page.reload();
+      charts.reload();
+      toast(format(t.orders.created, { number: order.number }));
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const handleCreateCustomer = async (customer: NewCustomer) => {
+    try {
+      await api("/customers", { method: "POST", body: customer });
+      setModal(null);
+      customers.reload();
+      page.reload();
+      toast(format(t.customers.created, { name: customer.name }));
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const handleRemoveCustomer = async (customer: Customer) => {
+    if (!window.confirm(format(t.customers.confirmRemove, { name: customer.name }))) return;
+    try {
+      await api(`/customers/${customer.id}`, { method: "DELETE" });
+      customers.reload();
+      page.reload();
+      toast(t.customers.removed);
     } catch (error) {
       fail(error);
     }
@@ -133,22 +204,44 @@ function Dashboard() {
     }
   };
 
+  const handleChangePassword = async (current: string, next: string) => {
+    try {
+      await authApi.changePassword(current, next);
+      toast(t.settings.passwordChanged);
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) toast(t.settings.passwordWrong);
+      else fail(error);
+      return false;
+    }
+  };
+
+  const goToStripe = async (path: "/billing/checkout" | "/billing/portal") => {
+    try {
+      const { url } = await api<{ url: string | null }>(path, { method: "POST" });
+      if (url) window.location.assign(url);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 503) toast(t.upgrade.unavailable);
+      else fail(error);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.12),transparent_35%),radial-gradient(circle_at_85%_20%,rgba(129,140,248,0.12),transparent_30%)] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto grid min-h-screen max-w-400 grid-cols-1 lg:grid-cols-[280px_1fr]">
         <Sidebar
           links={PAGE_IDS}
           activeLink={activePage}
-          onSelectLink={setActivePage}
           isMobileOpen={mobileOpen}
           onCloseMobile={closeMobile}
           onUpgrade={() => setModal("upgrade")}
+          onManageBilling={() => goToStripe("/billing/portal")}
+          billing={billing.data}
         />
         <div className="flex min-w-0 flex-col">
           <Navbar
             links={PAGE_IDS}
             activeLink={activePage}
-            onSelectLink={setActivePage}
             onToggleMobileMenu={() => setMobileOpen((open) => !open)}
             onExport={handleExport}
             onNewReport={() => setModal("newReport")}
@@ -172,6 +265,7 @@ function Dashboard() {
                     userName={user.data?.name ?? ""}
                     onViewInsights={() => setModal("insights")}
                     onManageTeam={() => setModal("team")}
+                    onNewOrder={isAdmin && activePage === "overview" ? () => setModal("newOrder") : undefined}
                   />
                 ) : (
                   <div aria-busy="true" className={`${baseCardClass} mb-8 h-56 animate-pulse`} />
@@ -183,7 +277,13 @@ function Dashboard() {
             {activePage === "overview" && charts.data && <OverviewChart charts={charts.data} />}
             {activePage === "analytics" && charts.data && <AnalyticsExtras charts={charts.data} />}
             {activePage === "customers" &&
-              (customers.error ? <ErrorCard onRetry={customers.reload} /> : customers.data && <CustomersView customers={customers.data} />)}
+              (customers.error ? (
+                <ErrorCard onRetry={customers.reload} />
+              ) : (
+                customers.data && (
+                  <CustomersView customers={customers.data} isAdmin={isAdmin} onAdd={() => setModal("newCustomer")} onRemove={handleRemoveCustomer} />
+                )
+              ))}
             {activePage === "reports" &&
               (reports.error ? (
                 <ErrorCard onRetry={reports.reload} />
@@ -195,32 +295,37 @@ function Dashboard() {
               (team.error ? (
                 <ErrorCard onRetry={team.reload} />
               ) : (
-                team.data && <SettingsView user={user.data} members={team.data} onSaveProfile={handleSaveProfile} onInvite={handleInvite} />
+                team.data && (
+                  <SettingsView
+                    user={user.data}
+                    members={team.data}
+                    onSaveProfile={handleSaveProfile}
+                    onInvite={handleInvite}
+                    onChangePassword={handleChangePassword}
+                    billing={billing.data}
+                    onUpgrade={() => setModal("upgrade")}
+                    onManageBilling={() => goToStripe("/billing/portal")}
+                  />
+                )
               ))}
           </main>
         </div>
       </div>
 
-      <InsightsModal open={modal === "insights"} onClose={closeModal} page={activePage} />
+      <InsightsModal open={modal === "insights"} onClose={closeModal} page={activePage} insights={page.data?.insights ?? []} />
       <TeamModal open={modal === "team"} onClose={closeModal} members={team.data ?? []} onInvite={handleInvite} />
-      <UpgradeModal
-        open={modal === "upgrade"}
-        onClose={closeModal}
-        onStart={() => {
-          setModal(null);
-          toast(t.upgrade.started);
-        }}
-      />
+      <UpgradeModal open={modal === "upgrade"} onClose={closeModal} onStart={() => goToStripe("/billing/checkout")} />
       <NewReportModal open={modal === "newReport"} onClose={closeModal} onCreate={handleCreateReport} />
+      <NewOrderModal open={modal === "newOrder"} onClose={closeModal} customers={customers.data ?? []} onCreate={handleCreateOrder} />
+      <NewCustomerModal open={modal === "newCustomer"} onClose={closeModal} onCreate={handleCreateCustomer} />
     </div>
   );
 }
 
-export function DashboardClient() {
+export function DashboardClient({ page }: { page: PageId }) {
   return (
     <ToastProvider>
-      <Dashboard />
+      <Dashboard page={page} />
     </ToastProvider>
   );
 }
-
